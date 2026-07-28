@@ -510,8 +510,9 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                     Se ele pedir listas, resumos ou valores, utilize os dados acima.
                     """
                     
+                    # CORREÇÃO AQUI: Utilizando o modelo gemini-3.5-flash atualizado
                     response = client.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-3.5-flash",
                         contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
                     )
                     resposta = response.text
