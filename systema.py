@@ -423,8 +423,6 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     doc.build(story)
     return pdf_path
 
-df_completo = carregar_todos_dados()
-
 # --- MENU LATERAL ---
 st.sidebar.markdown("### 🧭 Menu Principal")
 opcao_menu = st.sidebar.radio("Escolha a opção:", [
@@ -444,6 +442,9 @@ if st.sidebar.button("🔒 Sair do Sistema"):
     st.rerun()
 
 st.divider()
+
+# Carregamento sob demanda apenas onde necessário
+df_completo = carregar_todos_dados()
 
 # --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ ---
 if opcao_menu == "🤖 Assistente Administrativa & Voz":
@@ -499,43 +500,35 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                     else:
                         client = genai.Client()
 
-                    dados_resumo = df_completo.to_string() if not df_completo.empty else "Nenhum lançamento no banco."
+                    # Otimização: Em vez de injetar toda a tabela gigas no prompt, passamos apenas um resumo leve (total de registros e soma)
+                    total_reg = len(df_completo)
+                    total_valor = df_completo['valor'].sum() if not df_completo.empty else 0.0
+                    dados_resumo = f"Total de lançamentos no banco: {total_reg}. Valor acumulado: R$ {total_valor:.2f}."
                     
                     prompt_sistema = f"""
                     Você é a Assistente Administrativa Virtual experiente da Construtora Mads.
-                    Aqui está a listagem atual do banco de dados de lançamentos da empresa:
-                    {dados_resumo}
+                    Status resumido do banco de dados: {dados_resumo}
                     
-                    Responda ao usuário com naturalidade, presteza, foco profissional em construção civil, amizade e precisão. 
-                    Se ele pedir listas, resumos ou valores, utilize os dados acima.
+                    Responda ao usuário com naturalidade, presteza, foco profissional em construção civil, amizade e precisão.
                     """
                     
-                    # Chamada com fallback automático para evitar erro 503 (alta demanda)
+                    # Chamada otimizada com modelo ultrarrápido (flash-lite) como principal para resposta instantânea
                     try:
+                        response = client.models.generate_content(
+                            model="gemini-3.5-flash-lite",
+                            contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
+                        )
+                    except Exception as err_principal:
                         response = client.models.generate_content(
                             model="gemini-3.5-flash",
                             contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
                         )
-                    except Exception as err_principal:
-                        if "503" in str(err_principal) or "UNAVAILABLE" in str(err_principal):
-                            response = client.models.generate_content(
-                                model="gemini-3.5-flash-lite",
-                                contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
-                            )
-                        else:
-                            raise err_principal
                     
                     resposta = response.text
                 except Exception as e:
                     resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro técnico na API do Gemini: {str(e)})"
             else:
-                if not df_completo.empty and any(t in prompt_lower for t in ["lista", "traga", "mostre"]):
-                    resumo_dados = []
-                    for _, row in df_completo.iterrows():
-                        resumo_dados.append(f"• **{row['nome']}** ({row['cargo']}): R$ {row['valor']:.2f} — Pix: {row['chave_pix']}")
-                    resposta = "Aqui está a lista completa:\n\n" + "\n".join(resumo_dados)
-                else:
-                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
+                resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
 
         st.session_state.mensagens_chat.append({"role": "assistant", "content": resposta})
         with st.chat_message("assistant"):
