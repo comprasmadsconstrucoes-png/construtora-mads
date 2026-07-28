@@ -487,14 +487,23 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         else:
             # Se a IA estiver disponível, usa inteligência real passando o contexto do banco
             if GOOGLE_GENAI_DISPONIVEL:
+              else:
+            if GOOGLE_GENAI_DISPONIVEL:
                 try:
-                    # Tenta pegar a chave secreta configurada no Streamlit secrets ou variável de ambiente
-                    api_key_val = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+                    # Força a leitura segura da chave do Streamlit Secrets ou ambiente
+                    api_key_val = None
+                    try:
+                        api_key_val = st.secrets.get("GEMINI_API_KEY")
+                    except Exception:
+                        pass
+                    
                     if not api_key_val:
-                        # Tenta usar sem passar explicitamente se configurado no ambiente SDK padrão
-                        client = genai.Client()
-                    else:
+                        api_key_val = os.environ.get("GEMINI_API_KEY", "")
+
+                    if api_key_val:
                         client = genai.Client(api_key=api_key_val)
+                    else:
+                        client = genai.Client()
 
                     dados_resumo = df_completo.to_string() if not df_completo.empty else "Nenhum lançamento no banco."
                     
@@ -508,12 +517,12 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                     """
                     
                     response = client.models.generate_content(
-                        model="gemini-1.5-flash",
+                        model="gemini-2.5-flash",
                         contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
                     )
                     resposta = response.text
                 except Exception as e:
-                    resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro ao chamar a API de IA: {str(e)})"
+                    resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro técnico na API do Gemini: {str(e)})"
             else:
                 # Fallback caso a biblioteca não esteja instalada
                 if not df_completo.empty and any(t in prompt_lower for t in ["lista", "traga", "mostre"]):
@@ -522,7 +531,13 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                         resumo_dados.append(f"• **{row['nome']}** ({row['cargo']}): R$ {row['valor']:.2f} — Pix: {row['chave_pix']}")
                     resposta = "Aqui está a lista completa:\n\n" + "\n".join(resumo_dados)
                 else:
-                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
+                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!" 
+                    
+                
+                
+                
+                
+               
 
         st.session_state.mensagens_chat.append({"role": "assistant", "content": resposta})
         with st.chat_message("assistant"):
