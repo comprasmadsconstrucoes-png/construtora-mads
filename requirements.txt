@@ -2,4 +2,3 @@ google-genai
 pandas
 streamlit
 reportlab
-sqlite3
