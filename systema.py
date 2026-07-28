@@ -204,7 +204,6 @@ def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_sel
     return registros_inseridos, pd.DataFrame(dados_processados)
 
 def interpretar_e_executar_correcao(texto):
-    """Interpreta comandos via código para alterar valores, chaves ou excluir registros se necessário."""
     texto_lower = texto.lower()
     conexao = sqlite3.connect("banco_obras.db")
     cursor = conexao.cursor()
@@ -229,7 +228,7 @@ def interpretar_e_executar_correcao(texto):
                     conexao.commit()
                     conexao.close()
                     return f"Pronto! Atualizei o valor do lançamento de **{nome_alvo}** para **R$ {novo_valor:,.2f}** com sucesso! ✅"
-            except Exception as e:
+            except Exception:
                 pass
 
     if "apague" in texto_lower or "exclua" in texto_lower or "remover" in texto_lower:
@@ -384,7 +383,7 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         mat = float(r['material']) if 'material' in r else 0.0
         mo = float(r['mao_obra']) if 'mao_obra' in r else 0.0
         quant = float(r['quant']) if 'quant' in r else 1.0
-        tot_parcial = mat + mo
+        tot_parcial = (mat + mo) * quant
         subtotal_geral += tot_parcial
         
         tabela_dados.append([
@@ -446,7 +445,7 @@ if st.sidebar.button("🔒 Sair do Sistema"):
 
 st.divider()
 
-# --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ (COM IA REAL) ---
+# --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ ---
 if opcao_menu == "🤖 Assistente Administrativa & Voz":
     st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads (Inteligência Real)")
     st.markdown("Estou integrada com IA real! Converse comigo livremente, cole equipes, peça relatórios, crie lembretes ou solicite edições.")
@@ -468,7 +467,6 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         prompt_lower = prompt_usuario.lower()
         resposta = ""
 
-        # 1. Tenta comando de correção/edição primeiro
         resposta_correcao = interpretar_e_executar_correcao(prompt_usuario)
 
         if resposta_correcao:
@@ -485,12 +483,8 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
             else:
                 resposta = "Tentei processar a lista, mas não consegui identificar os registros com clareza."
         else:
-            # Se a IA estiver disponível, usa inteligência real passando o contexto do banco
-            if GOOGLE_GENAI_DISPONIVEL:
-              else:
             if GOOGLE_GENAI_DISPONIVEL:
                 try:
-                    # Força a leitura segura da chave do Streamlit Secrets ou ambiente
                     api_key_val = None
                     try:
                         api_key_val = st.secrets.get("GEMINI_API_KEY")
@@ -524,20 +518,13 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                 except Exception as e:
                     resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro técnico na API do Gemini: {str(e)})"
             else:
-                # Fallback caso a biblioteca não esteja instalada
                 if not df_completo.empty and any(t in prompt_lower for t in ["lista", "traga", "mostre"]):
                     resumo_dados = []
                     for _, row in df_completo.iterrows():
                         resumo_dados.append(f"• **{row['nome']}** ({row['cargo']}): R$ {row['valor']:.2f} — Pix: {row['chave_pix']}")
                     resposta = "Aqui está a lista completa:\n\n" + "\n".join(resumo_dados)
                 else:
-                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!" 
-                    
-                
-                
-                
-                
-               
+                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
 
         st.session_state.mensagens_chat.append({"role": "assistant", "content": resposta})
         with st.chat_message("assistant"):
@@ -685,130 +672,102 @@ elif opcao_menu == "📅 Consultar por Data":
         df_filtrado = df_completo[df_completo["data"] == data_escolhida]
         st.metric(label="💰 Total Geral Gasto no Dia", value=f"R$ {df_filtrado['valor'].sum():.2f}")
         st.dataframe(df_filtrado[["empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
+    else:
+        st.info("Nenhum lançamento registrado no banco de dados.")
 
-# --- ABA 6: PESQUISAR POR PROFISSIONAL ---
+# --- ABA 6: PESQUISAR POR PROFISSIONAL / EMPRESA ---
 elif opcao_menu == "🔍 Pesquisar por Profissional/Empresa":
-    st.subheader("👤 Histórico por Profissional ou Fornecedor")
+    st.subheader("🔍 Histórico por Profissional ou Fornecedor")
     if not df_completo.empty:
-        nomes_disponiveis = sorted(df_completo["nome"].unique())
-        nome_pesquisado = st.selectbox("Selecione o nome:", nomes_disponiveis)
-        df_prof = df_completo[df_completo["nome"].str.contains(nome_pesquisado, case=False, na=False)]
-        col1, col2 = st.columns(2)
-        col1.metric("📊 Total Acumulado Pago", f"R$ {df_prof['valor'].sum():.2f}")
-        col2.metric("🛠️ Total de Lançamentos", len(df_prof))
-        st.dataframe(df_prof[["data", "empreendimento", "categoria", "cargo", "valor", "chave_pix"]], use_container_width=True)
+        termo_busca = st.text_input("Digite o nome do profissional ou fornecedor:")
+        if termo_busca:
+            df_busca = df_completo[df_completo['nome'].str.contains(termo_busca, case=False, na=False)]
+            if not df_busca.empty:
+                st.success(f"Encontrados {len(df_busca)} registros para '{termo_busca}'.")
+                st.metric(label="💵 Total Pago a este Profissional/Fornecedor", value=f"R$ {df_busca['valor'].sum():.2f}")
+                st.dataframe(df_busca[["data", "empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
+            else:
+                st.warning("Nenhum registro encontrado com esse nome.")
+    else:
+        st.info("Banco de dados vazio.")
 
 # --- ABA 7: RELATÓRIO GERAL E EXPORTAÇÃO ---
 elif opcao_menu == "📊 Relatório Geral e Exportação":
-    st.subheader("📊 Base Completa da Construtora Mads e Edição de Lançamentos")
-    st.markdown("💡 *Dica:* Você pode editar qualquer célula diretamente na tabela abaixo (nomes, valores, chaves Pix, etc.). As alterações serão salvas no banco de dados ao clicar no botão abaixo.")
-    
+    st.subheader("📊 Relatório Geral de Lançamentos e Exportação Excel")
     if not df_completo.empty:
-        df_editado = st.data_editor(df_completo, num_rows="dynamic", use_container_width=True, key="editor_geral_lancamentos")
-        
-        if st.button("💾 Salvar Alterações Feitas na Tabela"):
-            conexao = sqlite3.connect("banco_obras.db")
-            cursor = conexao.cursor()
-            cursor.execute("DELETE FROM lancamentos")
-            for _, row in df_editado.iterrows():
-                cursor.execute("""
-                    INSERT INTO lancamentos (id, data, empreendimento, categoria, nome, cargo, valor, tipo_pix, chave_pix)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row['id'] if pd.notna(row['id']) else None,
-                    row['data'],
-                    row['empreendimento'],
-                    row['categoria'],
-                    row['nome'],
-                    row['cargo'],
-                    float(row['valor']),
-                    row['tipo_pix'],
-                    row['chave_pix']
-                ))
-            conexao.commit()
-            conexao.close()
-            st.success("Alterações salvas com sucesso no banco de dados!")
-            st.rerun()
+        st.metric(label="💰 Valor Total Acumulado Geral", value=f"R$ {df_completo['valor'].sum():.2f}")
+        st.dataframe(df_completo, use_container_width=True)
 
-        st.markdown("---")
-        csv = df_completo.drop(columns=["id"]).to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar Planilha Completa em CSV (Excel)", data=csv, file_name="construtora_mads_geral.csv", mime="text/csv")
+        output = pd.ExcelWriter("relatorio_geral_mads.xlsx", engine='xlsxwriter')
+        df_completo.to_excel(output, sheet_name='Lancamentos', index=False)
+        output.close()
+        
+        with open("relatorio_geral_mads.xlsx", "rb") as f_excel:
+            st.download_button("📥 Baixar Relatório em Excel (.xlsx)", data=f_excel, file_name="Relatorio_Construtora_Mads.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
-        st.info("Nenhum lançamento cadastrado.")
+        st.info("Nenhum dado cadastrado para exibir.")
 
 # --- ABA 8: GERENCIAR E LIMPAR DUPLICADAS ---
 elif opcao_menu == "🗑️ Gerenciar e Limpar Duplicadas":
-    st.subheader("🗑️ Limpeza de Lançamentos e Duplicadas")
+    st.subheader("🗑️ Gerenciamento e Remoção de Duplicadas")
     if not df_completo.empty:
-        datas_unicas = df_completo.copy()
-        datas_unicas['data_dt'] = pd.to_datetime(datas_unicas['data'], format='%d/%m/%Y', errors='coerce')
-        datas_ordenadas = datas_unicas.sort_values(by='data_dt', ascending=False)['data'].unique()
-        data_para_apagar = st.selectbox("Selecione a data para limpar:", datas_ordenadas)
-        df_ver_data = df_completo[df_completo["data"] == data_para_apagar]
-        st.dataframe(df_ver_data[["id", "empreendimento", "categoria", "nome", "cargo", "valor"]], use_container_width=True)
-        if st.button("🗑️ Apagar TODOS os lançamentos desta data"):
-            conexao = sqlite3.connect("banco_obras.db")
-            cursor = conexao.cursor()
-            cursor.execute("DELETE FROM lancamentos WHERE data = ?", (data_para_apagar,))
-            conexao.commit()
-            conexao.close()
-            st.success(f"Registros da data {data_para_apagar} apagados com sucesso!")
+        st.dataframe(df_completo, use_container_width=True)
+        id_remover = st.number_input("Digite o ID exato do lançamento que deseja excluir do banco:", min_value=0, step=1)
+        if st.button("🗑️ Excluir Lançamento por ID"):
+            if id_remover > 0:
+                conexao = sqlite3.connect("banco_obras.db")
+                cursor = conexao.cursor()
+                cursor.execute("DELETE FROM lancamentos WHERE id = ?", (id_remover,))
+                conexao.commit()
+                conexao.close()
+                st.success(f"Lançamento com ID {id_remover} removido com sucesso!")
+                st.rerun()
+    else:
+        st.info("O banco de dados está vazio.")
 
 # --- ABA 9: GERADOR DE ORÇAMENTO PDF ---
 elif opcao_menu == "📄 Gerador de Orçamento PDF":
-    st.subheader("📄 Gerador de Orçamento Padrão Mads com Auxílio de IA")
-    
+    st.subheader("📄 Gerador de Orçamento Oficial da Construtora Mads")
     if not REPORTLAB_DISPONIVEL:
         st.error("A biblioteca 'reportlab' não está instalada.")
     else:
-        if 'df_orcamento' not in st.session_state:
-            st.session_state.df_orcamento = pd.DataFrame(columns=["descricao", "unid", "quant", "material", "mao_obra"])
+        if 'df_orcamento_itens' not in st.session_state:
+            st.session_state.df_orcamento_itens = pd.DataFrame(columns=["descricao", "unid", "quant", "material", "mao_obra"])
 
-        with st.form("form_orcamento_dados"):
+        with st.form("form_dados_orcamento"):
             c1, c2 = st.columns(2)
             with c1:
-                obra_nome = st.text_input("Nome da Obra:", value="UNIDADE SÃO CARLOS")
-                solicitante = st.text_input("Solicitante (Cliente):", value="BURGER KING")
+                obra_nome = st.text_input("Nome da Obra / Projeto:", value="Reforma Residencial - Vila Maria")
+                solicitante = st.text_input("Cliente / Solicitante:", value="Joel Japin")
             with c2:
-                objeto = st.text_input("Objeto do Serviço:", value="SERVIÇOS GERAIS")
-                percentual_imposto = st.number_input("Percentual de Impostos + Lucro (%):", value=35.0)
-            
+                objeto = st.text_input("Objeto do Orçamento:", value="Execução de serviços de pintura, alvenaria e acabamentos")
+                percentual_imposto = st.number_input("Percentual BDI / Impostos (%)", value=15.0)
+
             st.markdown("---")
-            st.markdown("### 🤖 Adicionar Itens com IA (Texto Livre)")
-            texto_ia = st.text_area("Descreva os itens:", placeholder="Ex: 20 sacos de cimento a 48")
-            botao_processar_ia = st.form_submit_button("🤖 Processar Texto com IA e Adicionar na Tabela")
+            st.markdown("### Adicionar Etapa / Item ao Orçamento")
+            d_item = st.text_input("Descrição do Serviço / Material:", value="Aplicação de massa corrida e pintura acrílica")
+            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="m2")
+            d_quant = st.number_input("Quantidade:", value=120.0)
+            d_mat = st.number_input("Custo Unitário de Material (R$):", value=15.0)
+            d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=25.0)
+            
+            botao_add_orc = st.form_submit_button("➕ Adicionar Item ao Orçamento")
 
-        if botao_processar_ia:
-            if texto_ia.strip():
-                linhas_ia = texto_ia.strip().split("\n")
-                novos_itens = []
-                for linha in linhas_ia:
-                    if not linha.strip(): continue
-                    numeros = re.findall(r'[\d.,]+', linha)
-                    quant, valor_unit = 1.0, 0.0
-                    if len(numeros) >= 2:
-                        try:
-                            quant = float(numeros[0].replace(".", "").replace(",", "."))
-                            valor_unit = float(numeros[1].replace(".", "").replace(",", "."))
-                        except: pass
-                    elif len(numeros) == 1:
-                        try: valor_unit = float(numeros[0].replace(".", "").replace(",", "."))
-                        except: pass
+        if botao_add_orc:
+            novo_orc_item = pd.DataFrame([{
+                "descricao": d_item, "unid": d_unid, "quant": d_quant, "material": d_mat, "mao_obra": d_mo
+            }])
+            st.session_state.df_orcamento_itens = pd.concat([st.session_state.df_orcamento_itens, novo_orc_item], ignore_index=True)
+            st.success("Item adicionado com sucesso!")
 
-                    desc_limpa = re.sub(r'[\d.,]+', '', linha).replace('R$', '').strip().upper() or "MATERIAL DIVERSO"
-                    novos_itens.append({"descricao": desc_limpa, "unid": "UN", "quant": quant, "material": quant * valor_unit, "mao_obra": 0.0})
-                
-                if novos_itens:
-                    st.session_state.df_orcamento = pd.concat([st.session_state.df_orcamento, pd.DataFrame(novos_itens)], ignore_index=True)
-                    st.success("Itens adicionados!")
+        st.markdown("### Itens Atuais do Orçamento")
+        st.session_state.df_orcamento_itens = st.data_editor(st.session_state.df_orcamento_itens, num_rows="dynamic", use_container_width=True, key="editor_orc")
 
-        st.session_state.df_orcamento = st.data_editor(st.session_state.df_orcamento, num_rows="dynamic", use_container_width=True, key="editor_tabela_orcamento")
-
-        if st.button("📥 Gerar e Baixar Orçamento Oficial em PDF"):
-            if not st.session_state.df_orcamento.empty:
-                pdf_gerado = gerar_pdf_orcamento(obra_nome, solicitante, objeto, st.session_state.df_orcamento, percentual_imposto)
+        if st.button("📥 Gerar PDF do Orçamento Oficial"):
+            if not st.session_state.df_orcamento_itens.empty:
+                pdf_orc_path = gerar_pdf_orcamento(obra_nome, solicitante, objeto, st.session_state.df_orcamento_itens, percentual_imposto)
                 st.success("Orçamento gerado com sucesso!")
-                with open(pdf_gerado, "rb") as pdf_file:
-                    st.download_button("⬇️ Baixar PDF", data=pdf_file, file_name="Orcamento.pdf", mime="application/pdf")
+                with open(pdf_orc_path, "rb") as f_orc:
+                    st.download_button("⬇️ Baixar Orçamento em PDF", data=f_orc, file_name="Orcamento_Oficial_Mads.pdf", mime="application/pdf")
             else:
-                st.warning("Adicione itens.")
+                st.warning("Adicione pelo menos um item para gerar o orçamento.")
