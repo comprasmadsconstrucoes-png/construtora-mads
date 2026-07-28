@@ -510,11 +510,21 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
                     Se ele pedir listas, resumos ou valores, utilize os dados acima.
                     """
                     
-                    # CORREÇÃO AQUI: Utilizando o modelo gemini-3.5-flash atualizado
-                    response = client.models.generate_content(
-                        model="gemini-3.5-flash",
-                        contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
-                    )
+                    # Chamada com fallback automático para evitar erro 503 (alta demanda)
+                    try:
+                        response = client.models.generate_content(
+                            model="gemini-3.5-flash",
+                            contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
+                        )
+                    except Exception as err_principal:
+                        if "503" in str(err_principal) or "UNAVAILABLE" in str(err_principal):
+                            response = client.models.generate_content(
+                                model="gemini-3.5-flash-lite",
+                                contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
+                            )
+                        else:
+                            raise err_principal
+                    
                     resposta = response.text
                 except Exception as e:
                     resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro técnico na API do Gemini: {str(e)})"
