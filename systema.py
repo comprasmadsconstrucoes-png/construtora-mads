@@ -92,9 +92,9 @@ inicializar_banco()
 
 VALORES_PADRAO = {
     "pedreiro": 250.0,
-    "pintor": 230.0,
-    "meio oficial": 210.0,
-    "ajudante": 180.0
+    "pintor": 250.0,
+    "meio oficial": 200.0,
+    "ajudante": 150.0
 }
 
 def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_selecionada, tipo_lancamento):
@@ -115,6 +115,9 @@ def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_sel
         
         linha_lower = linha.lower()
 
+        if "equipe" in linha_lower and len(linha.split()) <= 2:
+            continue
+
         if "pix" in linha_lower or "@" in linha_lower or re.match(r'^\d{10,}$', re.sub(r'\D', '', linha)):
             partes_linha = linha.split()
             for p in partes_linha:
@@ -128,6 +131,9 @@ def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_sel
             continue
 
         nome = partes[0].capitalize()
+        if nome.lower() == "equipe":
+            continue
+
         cargo_encontrado = "Ajudante"
         valor = VALORES_PADRAO["ajudante"]
 
@@ -189,6 +195,54 @@ def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_sel
     conexao.commit()
     conexao.close()
     return registros_inseridos, pd.DataFrame(dados_processados)
+
+def interpretar_e_executar_correcao(texto):
+    """Interpreta comandos via IA para alterar valores, chaves ou excluir registros."""
+    texto_lower = texto.lower()
+    conexao = sqlite3.connect("banco_obras.db")
+    cursor = conexao.cursor()
+    
+    # Exemplo de comando de alteração de valor: "mude o valor do fabiano para 280" ou "alterar valor fabiano 280"
+    if "alterar" in texto_lower or "mude" in texto_lower or "mudar" in texto_lower or "atualize" in texto_lower:
+        match_valor = re.search(r'(?:para|de)\s*(?:r\$)?\s*([\d.]+,\d{2}|[\d]+)', texto_lower)
+        match_nome = re.search(r'(?:do|da|para o|para a)\s+([a-zA-ZÀ-ÿ]+)', texto_lower)
+        
+        if match_valor and match_nome:
+            val_str = match_valor.group(1).replace(".", "").replace(",", ".")
+            try:
+                novo_valor = float(val_str)
+                nome_alvo = match_nome.group(1).capitalize()
+                
+                # Atualiza no banco o último lançamento deste nome
+                cursor.execute("""
+                    UPDATE lancamentos 
+                    SET valor = ? 
+                    WHERE id = (SELECT id FROM lancamentos WHERE nome LIKE ? ORDER BY id DESC LIMIT 1)
+                """, (novo_valor, f"%{nome_alvo}%"))
+                
+                if cursor.rowcount > 0:
+                    conexao.commit()
+                    conexao.close()
+                    return f"Pronto! Atualizei o valor do lançamento de **{nome_alvo}** para **R$ {novo_valor:,.2f}** com sucesso! ✅"
+            except Exception as e:
+                pass
+
+    # Exemplo de exclusão: "apague o lançamento do paulo" ou "excluir paulo"
+    if "apague" in texto_lower or "exclua" in texto_lower or "remover" in texto_lower:
+        match_nome = re.search(r'(?:do|da|o|a)\s+([a-zA-ZÀ-ÿ]+)', texto_lower)
+        if match_nome:
+            nome_alvo = match_nome.group(1).capitalize()
+            cursor.execute("""
+                DELETE FROM lancamentos 
+                WHERE id = (SELECT id FROM lancamentos WHERE nome LIKE ? ORDER BY id DESC LIMIT 1)
+            """, (f"%{nome_alvo}%",))
+            if cursor.rowcount > 0:
+                conexao.commit()
+                conexao.close()
+                return f"Feito! O último registro associado a **{nome_alvo}** foi removido do banco de dados. 🗑️"
+
+    conexao.close()
+    return None
 
 def salvar_lembrete(texto):
     conexao = sqlite3.connect("banco_obras.db")
@@ -285,16 +339,84 @@ def gerar_pdf_reembolso(emitente_nome, emitente_cnpj, emitente_end, destinatario
     """
     story.append(Paragraph(banco_texto, sub_style))
     
-    # Se houver imagem da nota anexada, adiciona na próxima página
     if imagem_path and os.path.exists(imagem_path):
         story.append(Spacer(1, 30))
         story.append(Paragraph("<b>Anexo: Comprovante / Nota Fiscal</b>", titulo_style))
         story.append(Spacer(1, 10))
-        # Adiciona a imagem redimensionada para caber na página
         img = RLImage(imagem_path, width=450, height=600)
         img.hAlign = 'CENTER'
         story.append(img)
 
+    doc.build(story)
+    return pdf_path
+
+def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imposto):
+    pdf_path = "orcamento_oficial.pdf"
+    doc = SimpleDocTemplate(pdf_path, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
+    styles = getSampleStyleSheet()
+    
+    titulo_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=20, textColor=colors.HexColor('#1E3A8A'))
+    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.black)
+    
+    story.append(Paragraph("<b>CONSTRUTORA MADS — ORÇAMENTO OFICIAL</b>", titulo_style))
+    story.append(Spacer(1, 10))
+    
+    data_emissao = datetime.now().strftime('%d/%m/%Y')
+    info_texto = f"""
+    • <b>Obra:</b> {obra_nome}<br/>
+    • <b>Solicitante / Cliente:</b> {solicitante}<br/>
+    • <b>Objeto:</b> {objeto}<br/>
+    • <b>Data de Emissão:</b> {data_emissao}
+    """
+    story.append(Paragraph(info_texto, sub_style))
+    story.append(Spacer(1, 15))
+    
+    tabela_dados = [["Item", "Descrição", "Unid.", "Quant.", "Material (R$)", "Mão de Obra (R$)", "Total Parcial (R$)"]]
+    subtotal_geral = 0.0
+    
+    for idx, row in enumerate(itens_df.iterrows(), start=1):
+        _, r = row
+        mat = float(r['material']) if 'material' in r else 0.0
+        mo = float(r['mao_obra']) if 'mao_obra' in r else 0.0
+        quant = float(r['quant']) if 'quant' in r else 1.0
+        tot_parcial = mat + mo
+        subtotal_geral += tot_parcial
+        
+        tabela_dados.append([
+            str(idx),
+            str(r['descricao']).upper(),
+            str(r['unid']).upper(),
+            f"{quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+            f"{mat:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+            f"{mo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+            f"{tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        ])
+    
+    valor_impostos = subtotal_geral * (percentual_imposto / 100.0)
+    valor_total_final = subtotal_geral + valor_impostos
+    
+    tabela_dados.append(["", "SUBTOTAL DOS SERVIÇOS/MATERIAIS:", "", "", "", "", f"R$ {subtotal_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
+    tabela_dados.append(["", f"BDI / IMPOSTOS E LUCRO ({percentual_imposto}%):", "", "", "", "", f"R$ {valor_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
+    tabela_dados.append(["", "VALOR TOTAL GERAL DO ORÇAMENTO:", "", "", "", "", f"R$ {valor_total_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
+    
+    t_orc = Table(tabela_dados, colWidths=[40, 270, 50, 60, 100, 100, 110])
+    t_orc.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-4), 0.5, colors.HexColor('#CCCCCC')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0,0), (-1,-1), 8),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+        ('BACKGROUND', (0,-3), (-1,-1), colors.HexColor('#F3F4F6')),
+        ('FONTNAME', (0,-3), (-1,-1), 'Helvetica-Bold'),
+        ('SPAN', (0,-3), (4,-3)),
+        ('SPAN', (0,-2), (4,-2)),
+        ('SPAN', (0,-1), (4,-1)),
+    ]))
+    
+    story.append(t_orc)
     doc.build(story)
     return pdf_path
 
@@ -323,7 +445,7 @@ st.divider()
 # --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ ---
 if opcao_menu == "🤖 Assistente Administrativa & Voz":
     st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads")
-    st.markdown("Estou aqui com você! Pode conversar comigo, colar listas de equipe ou pedir para anotar lembretes.")
+    st.markdown("Estou aqui com você! Pode conversar comigo, colar listas de equipe, pedir lembretes ou **solicitar correções e alterações de valores diretamente por aqui**.")
 
     if "mensagens_chat" not in st.session_state:
         st.session_state.mensagens_chat = [
@@ -334,7 +456,7 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt_usuario := st.chat_input("Converse, cole a equipe ou peça para salvar um lembrete..."):
+    if prompt_usuario := st.chat_input("Converse, cole a equipe, peça lembretes ou correções..."):
         st.session_state.mensagens_chat.append({"role": "user", "content": prompt_usuario})
         with st.chat_message("user"):
             st.markdown(prompt_usuario)
@@ -344,11 +466,17 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
 
         contem_cargos = any(carg in prompt_lower for carg in ["pedreiro", "ajudante", "pintor", "meio oficial"])
         
-        if "lembre" in prompt_lower or "lembrar" in prompt_lower or "anota aí" in prompt_lower:
+        # Tenta interpretar se é um comando de correção/edição via IA
+        resposta_correcao = interpretar_e_executar_correcao(prompt_usuario)
+
+        if resposta_correcao:
+            resposta = resposta_correcao
+            df_completo = carregar_todos_dados() # Recarrega dados atualizados
+        elif "lembre" in prompt_lower or "lembrar" in prompt_lower or "anota aí" in prompt_lower:
             texto_lembrete = prompt_usuario.replace("me lembre de", "").replace("lembre-se de", "").replace("anota aí", "").strip()
             salvar_lembrete(texto_lembrete)
             resposta = f"Lembrete anotado com sucesso: *'{texto_lembrete}'*. Já salvei na sua lista de pendências! 📌"
-        elif contem_cargos:
+        elif contem_cargos or "equipe" in prompt_lower:
             qtd, df_res = processar_e_salvar_lancamentos(prompt_usuario, "Obra Bragança", datetime.now(), "Equipe / Mão de Obra")
             if qtd > 0:
                 resposta = f"Perfeito! Li a mensagem, identifiquei **{qtd} profissionais** e já salvei todos os lançamentos de diárias e chaves Pix no banco de dados com sucesso! 🏗️💰"
@@ -357,10 +485,18 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         else:
             palavras_saudacao = ["bom dia", "boa tarde", "boa noite", "olá", "tudo bem", "e ai"]
             if any(palavra in prompt_lower for palavra in palavras_saudacao):
-                resposta = "Bom dia! Tudo ótimo por here, focada nas planilhas e nos orçamentos das obras. E com você, tudo em ordem?"
+                resposta = "Bom dia! Tudo ótimo por aqui, focada nas planilhas e nos orçamentos das obras. E com você, tudo em ordem?"
             elif "quanto" in prompt_lower or "total" in prompt_lower or "gasto" in prompt_lower:
                 total_geral_val = df_completo['valor'].sum() if not df_completo.empty else 0.0
                 resposta = f"De acordo com os registros atuais no nosso banco de dados, o total acumulado de gastos está em **R$ {total_geral_val:,.2f}**."
+            elif "apenas o nome" in prompt_lower or "só o nome" in prompt_lower or "nome, valor e chave" in prompt_lower:
+                if not df_completo.empty:
+                    resumo_dados = []
+                    for _, row in df_completo.iterrows():
+                        resumo_dados.append(f"• **{row['nome']}**: R$ {row['valor']:.2f} (Chave Pix: {row['chave_pix']})")
+                    resposta = "Aqui estão os dados solicitados:\n\n" + "\n".join(resumo_dados)
+                else:
+                    resposta = "Não há lançamentos cadastrados no banco de dados no momento para listar."
             else:
                 resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
 
@@ -425,7 +561,7 @@ elif opcao_menu == "📌 Gerenciar Lembretes":
     else:
         st.info("Nenhum lembrete cadastrado no momento.")
 
-# --- ABA 4: FOLHA DE ROSTO REEMBOLSO (NOTA DÉBITO / RECIBO FATURA) ---
+# --- ABA 4: FOLHA DE ROSTO REEMBOLSO ---
 elif opcao_menu == "📄 Folha de Rosto Reembolso":
     st.subheader("📄 Gerador de Nota de Débito / Recibo Fatura para Reembolso")
     
@@ -525,11 +661,41 @@ elif opcao_menu == "🔍 Pesquisar por Profissional/Empresa":
 
 # --- ABA 7: RELATÓRIO GERAL E EXPORTAÇÃO ---
 elif opcao_menu == "📊 Relatório Geral e Exportação":
-    st.subheader("📊 Base Completa da Construtora Mads")
+    st.subheader("📊 Base Completa da Construtora Mads e Edição de Lançamentos")
+    st.markdown("💡 *Dica:* Você pode editar qualquer célula diretamente na tabela abaixo (nomes, valores, chaves Pix, etc.). As alterações serão salvas no banco de dados ao clicar no botão abaixo.")
+    
     if not df_completo.empty:
-        st.dataframe(df_completo.drop(columns=["id"]), use_container_width=True)
+        df_editado = st.data_editor(df_completo, num_rows="dynamic", use_container_width=True, key="editor_geral_lancamentos")
+        
+        if st.button("💾 Salvar Alterações Feitas na Tabela"):
+            conexao = sqlite3.connect("banco_obras.db")
+            cursor = conexao.cursor()
+            cursor.execute("DELETE FROM lancamentos")
+            for _, row in df_editado.iterrows():
+                cursor.execute("""
+                    INSERT INTO lancamentos (id, data, empreendimento, categoria, nome, cargo, valor, tipo_pix, chave_pix)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    row['id'] if pd.notna(row['id']) else None,
+                    row['data'],
+                    row['empreendimento'],
+                    row['categoria'],
+                    row['nome'],
+                    row['cargo'],
+                    float(row['valor']),
+                    row['tipo_pix'],
+                    row['chave_pix']
+                ))
+            conexao.commit()
+            conexao.close()
+            st.success("Alterações salvas com sucesso no banco de dados!")
+            st.rerun()
+
+        st.markdown("---")
         csv = df_completo.drop(columns=["id"]).to_csv(index=False).encode('utf-8')
         st.download_button("📥 Baixar Planilha Completa em CSV (Excel)", data=csv, file_name="construtora_mads_geral.csv", mime="text/csv")
+    else:
+        st.info("Nenhum lançamento cadastrado.")
 
 # --- ABA 8: GERENCIAR E LIMPAR DUPLICADAS ---
 elif opcao_menu == "🗑️ Gerenciar e Limpar Duplicadas":
