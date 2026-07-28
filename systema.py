@@ -5,6 +5,13 @@ import re
 from datetime import datetime
 import os
 
+# Importação da Biblioteca Oficial do Google GenAI
+try:
+    from google import genai
+    GOOGLE_GENAI_DISPONIVEL = True
+except ImportError:
+    GOOGLE_GENAI_DISPONIVEL = False
+
 try:
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
@@ -55,7 +62,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<p class="main-header">🏗️ Construtora Mads — Gestão Financeira e Orçamentos</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Controle unificado de diárias, fornecedores, histórico, lembretes, reembolsos e Assistente IA.</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">Controle unificado de diárias, fornecedores, histórico, lembretes, reembolsos e Assistente IA com Inteligência Real.</p>', unsafe_allow_html=True)
 
 def inicializar_banco():
     conexao = sqlite3.connect("banco_obras.db")
@@ -197,12 +204,11 @@ def processar_e_salvar_lancamentos(texto_mensagem, empreendimento_nome, data_sel
     return registros_inseridos, pd.DataFrame(dados_processados)
 
 def interpretar_e_executar_correcao(texto):
-    """Interpreta comandos via IA para alterar valores, chaves ou excluir registros."""
+    """Interpreta comandos via código para alterar valores, chaves ou excluir registros se necessário."""
     texto_lower = texto.lower()
     conexao = sqlite3.connect("banco_obras.db")
     cursor = conexao.cursor()
     
-    # Exemplo de comando de alteração de valor: "mude o valor do fabiano para 280" ou "alterar valor fabiano 280"
     if "alterar" in texto_lower or "mude" in texto_lower or "mudar" in texto_lower or "atualize" in texto_lower:
         match_valor = re.search(r'(?:para|de)\s*(?:r\$)?\s*([\d.]+,\d{2}|[\d]+)', texto_lower)
         match_nome = re.search(r'(?:do|da|para o|para a)\s+([a-zA-ZÀ-ÿ]+)', texto_lower)
@@ -213,7 +219,6 @@ def interpretar_e_executar_correcao(texto):
                 novo_valor = float(val_str)
                 nome_alvo = match_nome.group(1).capitalize()
                 
-                # Atualiza no banco o último lançamento deste nome
                 cursor.execute("""
                     UPDATE lancamentos 
                     SET valor = ? 
@@ -227,7 +232,6 @@ def interpretar_e_executar_correcao(texto):
             except Exception as e:
                 pass
 
-    # Exemplo de exclusão: "apague o lançamento do paulo" ou "excluir paulo"
     if "apague" in texto_lower or "exclua" in texto_lower or "remover" in texto_lower:
         match_nome = re.search(r'(?:do|da|o|a)\s+([a-zA-ZÀ-ÿ]+)', texto_lower)
         if match_nome:
@@ -442,21 +446,21 @@ if st.sidebar.button("🔒 Sair do Sistema"):
 
 st.divider()
 
-# --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ ---
+# --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ (COM IA REAL) ---
 if opcao_menu == "🤖 Assistente Administrativa & Voz":
-    st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads")
-    st.markdown("Estou aqui com você! Pode conversar comigo, colar listas de equipe, pedir lembretes ou **solicitar correções e alterações de valores diretamente por aqui**.")
+    st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads (Inteligência Real)")
+    st.markdown("Estou integrada com IA real! Converse comigo livremente, cole equipes, peça relatórios, crie lembretes ou solicite edições.")
 
     if "mensagens_chat" not in st.session_state:
         st.session_state.mensagens_chat = [
-            {"role": "assistant", "content": "Olá, chefe! Bom dia! Tudo ótimo por aqui pronta para mais um dia produtivo na Construtora Mads. Como posso te ajudar nas obras hoje?"}
+            {"role": "assistant", "content": "Olá, chefe! Bom dia! Estou pronta com inteligência real para te ajudar na Construtora Mads. O que mandas para hoje?"}
         ]
 
     for msg in st.session_state.mensagens_chat:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt_usuario := st.chat_input("Converse, cole a equipe, peça lembretes ou correções..."):
+    if prompt_usuario := st.chat_input("Converse livremente com a assistente..."):
         st.session_state.mensagens_chat.append({"role": "user", "content": prompt_usuario})
         with st.chat_message("user"):
             st.markdown(prompt_usuario)
@@ -464,41 +468,61 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         prompt_lower = prompt_usuario.lower()
         resposta = ""
 
-        contem_cargos = any(carg in prompt_lower for carg in ["pedreiro", "ajudante", "pintor", "meio oficial"])
-        
-        # Tenta interpretar se é um comando de correção/edição via IA
+        # 1. Tenta comando de correção/edição primeiro
         resposta_correcao = interpretar_e_executar_correcao(prompt_usuario)
 
         if resposta_correcao:
             resposta = resposta_correcao
-            df_completo = carregar_todos_dados() # Recarrega dados atualizados
+            df_completo = carregar_todos_dados()
         elif "lembre" in prompt_lower or "lembrar" in prompt_lower or "anota aí" in prompt_lower:
             texto_lembrete = prompt_usuario.replace("me lembre de", "").replace("lembre-se de", "").replace("anota aí", "").strip()
             salvar_lembrete(texto_lembrete)
             resposta = f"Lembrete anotado com sucesso: *'{texto_lembrete}'*. Já salvei na sua lista de pendências! 📌"
-        elif contem_cargos or "equipe" in prompt_lower:
+        elif any(carg in prompt_lower for carg in ["pedreiro", "ajudante", "pintor", "meio oficial"]) and len(prompt_usuario.split()) > 3:
             qtd, df_res = processar_e_salvar_lancamentos(prompt_usuario, "Obra Bragança", datetime.now(), "Equipe / Mão de Obra")
             if qtd > 0:
                 resposta = f"Perfeito! Li a mensagem, identifiquei **{qtd} profissionais** e já salvei todos os lançamentos de diárias e chaves Pix no banco de dados com sucesso! 🏗️💰"
             else:
-                resposta = "Tentei processar a lista, mas não consegui identificar os registros com clareza. Pode conferir o formato?"
+                resposta = "Tentei processar a lista, mas não consegui identificar os registros com clareza."
         else:
-            palavras_saudacao = ["bom dia", "boa tarde", "boa noite", "olá", "tudo bem", "e ai"]
-            if any(palavra in prompt_lower for palavra in palavras_saudacao):
-                resposta = "Bom dia! Tudo ótimo por aqui, focada nas planilhas e nos orçamentos das obras. E com você, tudo em ordem?"
-            elif "quanto" in prompt_lower or "total" in prompt_lower or "gasto" in prompt_lower:
-                total_geral_val = df_completo['valor'].sum() if not df_completo.empty else 0.0
-                resposta = f"De acordo com os registros atuais no nosso banco de dados, o total acumulado de gastos está em **R$ {total_geral_val:,.2f}**."
-            elif "apenas o nome" in prompt_lower or "só o nome" in prompt_lower or "nome, valor e chave" in prompt_lower:
-                if not df_completo.empty:
+            # Se a IA estiver disponível, usa inteligência real passando o contexto do banco
+            if GOOGLE_GENAI_DISPONIVEL:
+                try:
+                    # Tenta pegar a chave secreta configurada no Streamlit secrets ou variável de ambiente
+                    api_key_val = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+                    if not api_key_val:
+                        # Tenta usar sem passar explicitamente se configurado no ambiente SDK padrão
+                        client = genai.Client()
+                    else:
+                        client = genai.Client(api_key=api_key_val)
+
+                    dados_resumo = df_completo.to_string() if not df_completo.empty else "Nenhum lançamento no banco."
+                    
+                    prompt_sistema = f"""
+                    Você é a Assistente Administrativa Virtual experiente da Construtora Mads.
+                    Aqui está a listagem atual do banco de dados de lançamentos da empresa:
+                    {dados_resumo}
+                    
+                    Responda ao usuário com naturalidade, presteza, foco profissional em construção civil, amizade e precisão. 
+                    Se ele pedir listas, resumos ou valores, utilize os dados acima.
+                    """
+                    
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
+                    )
+                    resposta = response.text
+                except Exception as e:
+                    resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro ao chamar a API de IA: {str(e)})"
+            else:
+                # Fallback caso a biblioteca não esteja instalada
+                if not df_completo.empty and any(t in prompt_lower for t in ["lista", "traga", "mostre"]):
                     resumo_dados = []
                     for _, row in df_completo.iterrows():
-                        resumo_dados.append(f"• **{row['nome']}**: R$ {row['valor']:.2f} (Chave Pix: {row['chave_pix']})")
-                    resposta = "Aqui estão os dados solicitados:\n\n" + "\n".join(resumo_dados)
+                        resumo_dados.append(f"• **{row['nome']}** ({row['cargo']}): R$ {row['valor']:.2f} — Pix: {row['chave_pix']}")
+                    resposta = "Aqui está a lista completa:\n\n" + "\n".join(resumo_dados)
                 else:
-                    resposta = "Não há lançamentos cadastrados no banco de dados no momento para listar."
-            else:
-                resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
+                    resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
 
         st.session_state.mensagens_chat.append({"role": "assistant", "content": resposta})
         with st.chat_message("assistant"):
