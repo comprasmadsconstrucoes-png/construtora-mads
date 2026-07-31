@@ -227,11 +227,11 @@ def interpretar_e_executar_correcao(texto):
                 if cursor.rowcount > 0:
                     conexao.commit()
                     conexao.close()
-                    return f"Pronto! Atualizei o valor do lançamento de **{nome_alvo}** para **R$ {novo_valor:,.2f}** com sucesso! ✅"
+                    return f"Pronto, Joel! Atualizei o valor do lançamento de **{nome_alvo}** para **R$ {novo_valor:,.2f}** com sucesso! ✅"
             except Exception:
                 pass
 
-    if "apague" in texto_lower or "exclua" in texto_lower or "remover" in texto_lower:
+    if "apague" in texto_lower or "exclua" in texto_lower or "remover" in texto_lower or "retire" in texto_lower:
         match_nome = re.search(r'(?:do|da|o|a)\s+([a-zA-ZÀ-ÿ]+)', texto_lower)
         if match_nome:
             nome_alvo = match_nome.group(1).capitalize()
@@ -242,7 +242,7 @@ def interpretar_e_executar_correcao(texto):
             if cursor.rowcount > 0:
                 conexao.commit()
                 conexao.close()
-                return f"Feito! O último registro associado a **{nome_alvo}** foi removido do banco de dados. 🗑️"
+                return f"Pronto, Joel! Retirei o **{nome_alvo}** da lista. 🗑️"
 
     conexao.close()
     return None
@@ -400,7 +400,7 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     valor_total_final = subtotal_geral + valor_impostos
     
     tabela_dados.append(["", "SUBTOTAL DOS SERVIÇOS/MATERIAIS:", "", "", "", "", f"R$ {subtotal_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
-    tabela_dados.append(["", f"BDI / IMPOSTOS E LUCRO ({percentual_imposto}%):", "", "", "", "", f"R$ {valor_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
+    tabela_dados.append(["", f"BDI / IMPOSTOS E LUCRO ({percentual_imposto:.1f}%):", "", "", "", "", f"R$ {valor_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
     tabela_dados.append(["", "VALOR TOTAL GERAL DO ORÇAMENTO:", "", "", "", "", f"R$ {valor_total_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
     
     t_orc = Table(tabela_dados, colWidths=[40, 270, 50, 60, 100, 100, 110])
@@ -443,22 +443,21 @@ if st.sidebar.button("🔒 Sair do Sistema"):
 
 st.divider()
 
-# Carregamento sob demanda apenas onde necessário
 df_completo = carregar_todos_dados()
 
 # --- ABA 1: ASSISTENTE ADMINISTRATIVA & VOZ ---
 if opcao_menu == "🤖 Assistente Administrativa & Voz":
-    st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads (Inteligência Real)")
-    st.markdown("Estou integrada com IA real! Converse comigo livremente, cole equipes, peça relatórios, crie lembretes ou solicite edições.")
+    st.subheader("🤖 Assistente Administrativa Virtual da Construtora Mads")
+    st.markdown("Estou pronta para gerenciar sua equipe, organizar pagamentos e exibir tabelas detalhadas direto no chat!")
 
     if "mensagens_chat" not in st.session_state:
         st.session_state.mensagens_chat = [
-            {"role": "assistant", "content": "Olá, chefe! Bom dia! Estou pronta com inteligência real para te ajudar na Construtora Mads. O que mandas para hoje?"}
+            {"role": "assistant", "content": "Olá, Joel! Tudo bem? Estou pronta para te ajudar na Construtora Mads. O que mandas para hoje?"}
         ]
 
     for msg in st.session_state.mensagens_chat:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            st.markdown(msg["content"], unsafe_allow_html=True)
 
     if prompt_usuario := st.chat_input("Converse livremente com a assistente..."):
         st.session_state.mensagens_chat.append({"role": "user", "content": prompt_usuario})
@@ -480,59 +479,51 @@ if opcao_menu == "🤖 Assistente Administrativa & Voz":
         elif any(carg in prompt_lower for carg in ["pedreiro", "ajudante", "pintor", "meio oficial"]) and len(prompt_usuario.split()) > 3:
             qtd, df_res = processar_e_salvar_lancamentos(prompt_usuario, "Obra Bragança", datetime.now(), "Equipe / Mão de Obra")
             if qtd > 0:
-                resposta = f"Perfeito! Li a mensagem, identifiquei **{qtd} profissionais** e já salvei todos os lançamentos de diárias e chaves Pix no banco de dados com sucesso! 🏗️💰"
+                resposta = f"Pronto, Joel! Identifiquei **{qtd} profissionais** e já salvei os lançamentos. Aqui está a lista atualizada:<br><br>"
+                df_recente = carregar_todos_dados().head(qtd)
+                tabela_html = df_recente[['nome', 'cargo', 'valor', 'chave_pix']].rename(
+                    columns={'nome': 'Nome', 'cargo': 'Função', 'valor': 'Valor (R$)', 'chave_pix': 'Chave / Dado Pagamento'}
+                ).to_html(index=False, classes='table table-striped')
+                resposta += tabela_html
             else:
                 resposta = "Tentei processar a lista, mas não consegui identificar os registros com clareza."
+        elif "lista" in prompt_lower or "pagamento" in prompt_lower or "relatório" in prompt_lower or "quanto" in prompt_lower:
+            df_recente = carregar_todos_dados().head(15)
+            total_geral = df_completo['valor'].sum() if not df_completo.empty else 0.0
+            resposta = f"Aqui está a listagem recente dos registros cadastrados (Total acumulado geral: **R$ {total_geral:,.2f}**):<br><br>"
+            tabela_html = df_recente[['nome', 'cargo', 'valor', 'chave_pix']].rename(
+                columns={'nome': 'Nome', 'cargo': 'Função', 'valor': 'Valor (R$)', 'chave_pix': 'Chave / Dado Pagamento'}
+            ).to_html(index=False, classes='table table-striped')
+            resposta += tabela_html
         else:
             if GOOGLE_GENAI_DISPONIVEL:
                 try:
-                    api_key_val = None
-                    try:
-                        api_key_val = st.secrets.get("GEMINI_API_KEY")
-                    except Exception:
-                        pass
-                    
-                    if not api_key_val:
-                        api_key_val = os.environ.get("GEMINI_API_KEY", "")
+                    api_key_val = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else os.environ.get("GEMINI_API_KEY", "")
+                    client = genai.Client(api_key=api_key_val) if api_key_val else genai.Client()
 
-                    if api_key_val:
-                        client = genai.Client(api_key=api_key_val)
-                    else:
-                        client = genai.Client()
-
-                    # Otimização: Em vez de injetar toda a tabela gigas no prompt, passamos apenas um resumo leve (total de registros e soma)
                     total_reg = len(df_completo)
                     total_valor = df_completo['valor'].sum() if not df_completo.empty else 0.0
-                    dados_resumo = f"Total de lançamentos no banco: {total_reg}. Valor acumulado: R$ {total_valor:.2f}."
+                    dados_resumo = f"Total de lançamentos: {total_reg}. Valor acumulado: R$ {total_valor:.2f}."
                     
                     prompt_sistema = f"""
-                    Você é a Assistente Administrativa Virtual experiente da Construtora Mads.
+                    Você é a Assistente Administrativa Virtual experiente da Construtora Mads. O seu chefe é o Joel Japin.
                     Status resumido do banco de dados: {dados_resumo}
-                    
-                    Responda ao usuário com naturalidade, presteza, foco profissional em construção civil, amizade e precisão.
+                    Responda sempre com naturalidade, presteza, foco profissional em construção civil, amizade e precisão, chamando-o pelo nome (Joel).
                     """
                     
-                    # Chamada otimizada com modelo ultrarrápido (flash-lite) como principal para resposta instantânea
-                    try:
-                        response = client.models.generate_content(
-                            model="gemini-3.5-flash-lite",
-                            contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
-                        )
-                    except Exception as err_principal:
-                        response = client.models.generate_content(
-                            model="gemini-3.5-flash",
-                            contents=f"{prompt_sistema}\n\nMensagem do chefe: {prompt_usuario}"
-                        )
-                    
+                    response = client.models.generate_content(
+                        model="gemini-3.5-flash-lite",
+                        contents=f"{prompt_sistema}\n\nMensagem do Joel: {prompt_usuario}"
+                    )
                     resposta = response.text
                 except Exception as e:
-                    resposta = f"Compreendi sua solicitação: *'{prompt_usuario}'*. (Nota: Erro técnico na API do Gemini: {str(e)})"
+                    resposta = f"Compreendi sua solicitação, Joel: *'{prompt_usuario}'*."
             else:
-                resposta = f"Compreendi sua ideia: *'{prompt_usuario}'*. Estou anotando tudo por aqui!"
+                resposta = f"Compreendi sua ideia, Joel: *'{prompt_usuario}'*."
 
         st.session_state.mensagens_chat.append({"role": "assistant", "content": resposta})
         with st.chat_message("assistant"):
-            st.markdown(resposta)
+            st.markdown(resposta, unsafe_allow_html=True)
 
 # --- ABA 2: CADASTRAR LANÇAMENTOS ---
 elif opcao_menu == "📥 Cadastrar Lançamentos":
@@ -544,7 +535,7 @@ elif opcao_menu == "📥 Cadastrar Lançamentos":
         with col3: tipo_lancamento = st.selectbox("Tipo de Lançamento:", ["Equipe / Mão de Obra", "Material / Fornecedor"])
 
         if tipo_lancamento == "Equipe / Mão de Obra":
-            placeholder_texto = "Cole sua lista aqui (ex: Fabiano pedreiro, Paulo pedreiro, etc.)"
+            placeholder_texto = "Cole sua equipe aqui (ex: Fabiano pedreiro, Paulo pedreiro, etc.)"
             label_texto = "Cole a equipe abaixo (Nome + Cargo + Pix opcional):"
         else:
             placeholder_texto = "Exemplos:\nLoja_do_Gesso R$ 450,00 12345678000199\nDepósito_Sao_Judas R$ 1.200,00 contato@deposito.com"
@@ -557,7 +548,7 @@ elif opcao_menu == "📥 Cadastrar Lançamentos":
             if texto_copiado.strip():
                 qtd, df_relatorio = processar_e_salvar_lancamentos(texto_copiado, nome_obra, data_obra, tipo_lancamento)
                 if qtd > 0:
-                    st.success(f"Sucesso! {qtd} registro(s) processado(s).")
+                    st.success(f"Sucesso, Joel! {qtd} registro(s) processado(s).")
                     st.dataframe(df_relatorio, use_container_width=True)
                 else: st.warning("Nenhum lançamento válido identificado.")
 
@@ -643,7 +634,7 @@ elif opcao_menu == "📄 Folha de Rosto Reembolso":
         st.session_state.df_reembolso = st.data_editor(st.session_state.df_reembolso, num_rows="dynamic", use_container_width=True, key="editor_reembolso")
 
         st.markdown("### 📸 Anexar Foto da Nota Fiscal")
-        foto_nota = st.file_uploader("Faça upload da foto da nota fiscal (será inserida na última página do PDF):", type=["png", "jpg", "jpeg"])
+        foto_nota = st.file_uploader("Faça upload da foto da nota fiscal:", type=["png", "jpg", "jpeg"])
         
         caminho_foto_temp = None
         if foto_nota is not None:
@@ -652,7 +643,7 @@ elif opcao_menu == "📄 Folha de Rosto Reembolso":
                 f.write(foto_nota.getbuffer())
             st.image(foto_nota, caption="Pré-visualização da Nota Anexada", width=300)
 
-        if st.button("📥 Gerar PDF Completo (Nota de Débito + Foto da Nota)"):
+        if st.button("📥 Gerar PDF Completo"):
             if not st.session_state.df_reembolso.empty:
                 pdf_reb = gerar_pdf_reembolso(
                     emitente_nome, emitente_cnpj, emitente_end,
@@ -675,7 +666,7 @@ elif opcao_menu == "📅 Consultar por Data":
         data_escolhida = st.selectbox("Selecione a data:", datas_ordenadas)
         df_filtrado = df_completo[df_completo["data"] == data_escolhida]
         st.metric(label="💰 Total Geral Gasto no Dia", value=f"R$ {df_filtrado['valor'].sum():.2f}")
-        st.dataframe(df_filtrado[["empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
+        st.dataframe(df_filtrado[["id", "empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
     else:
         st.info("Nenhum lançamento registrado no banco de dados.")
 
@@ -688,8 +679,8 @@ elif opcao_menu == "🔍 Pesquisar por Profissional/Empresa":
             df_busca = df_completo[df_completo['nome'].str.contains(termo_busca, case=False, na=False)]
             if not df_busca.empty:
                 st.success(f"Encontrados {len(df_busca)} registros para '{termo_busca}'.")
-                st.metric(label="💵 Total Pago a este Profissional/Fornecedor", value=f"R$ {df_busca['valor'].sum():.2f}")
-                st.dataframe(df_busca[["data", "empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
+                st.metric(label="💵 Total Pago", value=f"R$ {df_busca['valor'].sum():.2f}")
+                st.dataframe(df_busca[["id", "data", "empreendimento", "categoria", "nome", "cargo", "valor", "chave_pix"]], use_container_width=True)
             else:
                 st.warning("Nenhum registro encontrado com esse nome.")
     else:
@@ -713,18 +704,33 @@ elif opcao_menu == "📊 Relatório Geral e Exportação":
 
 # --- ABA 8: GERENCIAR E LIMPAR DUPLICADAS ---
 elif opcao_menu == "🗑️ Gerenciar e Limpar Duplicadas":
-    st.subheader("🗑️ Gerenciamento e Remoção de Duplicadas")
+    st.subheader("🗑️ Gerenciamento e Remoção de Lançamentos e Duplicadas")
+    st.markdown("Aqui você pode visualizar todos os IDs dos lançamentos do banco e excluir facilmente qualquer registro duplicado ou errado.")
+    
     if not df_completo.empty:
         st.dataframe(df_completo, use_container_width=True)
-        id_remover = st.number_input("Digite o ID exato do lançamento que deseja excluir do banco:", min_value=0, step=1)
-        if st.button("🗑️ Excluir Lançamento por ID"):
-            if id_remover > 0:
+        
+        col_ex1, col_ex2 = st.columns(2)
+        with col_ex1:
+            id_remover = st.number_input("Digite o ID exato do lançamento para excluir:", min_value=0, step=1)
+            if st.button("🗑️ Excluir Lançamento Selecionado por ID"):
+                if id_remover > 0:
+                    conexao = sqlite3.connect("banco_obras.db")
+                    cursor = conexao.cursor()
+                    cursor.execute("DELETE FROM lancamentos WHERE id = ?", (id_remover,))
+                    conexao.commit()
+                    conexao.close()
+                    st.success(f"Lançamento com ID {id_remover} removido com sucesso!")
+                    st.rerun()
+        with col_ex2:
+            st.markdown("### ⚠️ Limpeza Rápida")
+            if st.button("🗑️ Excluir Último Registro Inserido"):
                 conexao = sqlite3.connect("banco_obras.db")
                 cursor = conexao.cursor()
-                cursor.execute("DELETE FROM lancamentos WHERE id = ?", (id_remover,))
+                cursor.execute("DELETE FROM lancamentos WHERE id = (SELECT MAX(id) FROM lancamentos)")
                 conexao.commit()
                 conexao.close()
-                st.success(f"Lançamento com ID {id_remover} removido com sucesso!")
+                st.success("Último lançamento removido com sucesso!")
                 st.rerun()
     else:
         st.info("O banco de dados está vazio.")
@@ -741,19 +747,19 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
         with st.form("form_dados_orcamento"):
             c1, c2 = st.columns(2)
             with c1:
-                obra_nome = st.text_input("Nome da Obra / Projeto:", value="Reforma Residencial - Vila Maria")
-                solicitante = st.text_input("Cliente / Solicitante:", value="Joel Japin")
+                obra_nome_input = st.text_input("Nome da Obra / Projeto:", value="OBRA BK BRAGANÇA PAULISTA")
+                solicitante_input = st.text_input("Cliente / Solicitante:", value="Joel Japin")
             with c2:
-                objeto = st.text_input("Objeto do Orçamento:", value="Execução de serviços de pintura, alvenaria e acabamentos")
-                percentual_imposto = st.number_input("Percentual BDI / Impostos (%)", value=15.0)
+                objeto_input = st.text_input("Objeto do Orçamento:", value="SERVICOS GERAIS")
+                percentual_imposto_input = st.number_input("Percentual BDI / Impostos (%)", value=30.0)
 
             st.markdown("---")
             st.markdown("### Adicionar Etapa / Item ao Orçamento")
-            d_item = st.text_input("Descrição do Serviço / Material:", value="Aplicação de massa corrida e pintura acrílica")
-            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="m2")
-            d_quant = st.number_input("Quantidade:", value=120.0)
-            d_mat = st.number_input("Custo Unitário de Material (R$):", value=15.0)
-            d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=25.0)
+            d_item = st.text_input("Descrição do Serviço / Material:", value="ACM PRETO")
+            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="M2")
+            d_quant = st.number_input("Quantidade:", value=6.52)
+            d_mat = st.number_input("Custo Unitário de Material (R$):", value=31.05)
+            d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=0.0)
             
             botao_add_orc = st.form_submit_button("➕ Adicionar Item ao Orçamento")
 
@@ -769,7 +775,7 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
 
         if st.button("📥 Gerar PDF do Orçamento Oficial"):
             if not st.session_state.df_orcamento_itens.empty:
-                pdf_orc_path = gerar_pdf_orcamento(obra_nome, solicitante, objeto, st.session_state.df_orcamento_itens, percentual_imposto)
+                pdf_orc_path = gerar_pdf_orcamento(obra_nome_input, solicitante_input, objeto_input, st.session_state.df_orcamento_itens, percentual_imposto_input)
                 st.success("Orçamento gerado com sucesso!")
                 with open(pdf_orc_path, "rb") as f_orc:
                     st.download_button("⬇️ Baixar Orçamento em PDF", data=f_orc, file_name="Orcamento_Oficial_Mads.pdf", mime="application/pdf")
