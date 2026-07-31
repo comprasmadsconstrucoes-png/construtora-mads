@@ -355,7 +355,6 @@ def gerar_pdf_reembolso(emitente_nome, emitente_cnpj, emitente_end, destinatario
 
 def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imposto):
     pdf_path = "orcamento_oficial.pdf"
-    # Margens e tamanho paisagem para caber perfeitamente como na sua imagem
     doc = SimpleDocTemplate(pdf_path, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     story = []
     styles = getSampleStyleSheet()
@@ -365,12 +364,10 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.black)
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black)
     
-    # Estilos específicos para os textos dentro das barras coloridas do layout exato
     white_bold_cell = ParagraphStyle('WhiteBoldCell', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.white)
     white_bold_cell_right = ParagraphStyle('WhiteBoldCellRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.white, alignment=2)
-    black_bold_cell_right = ParagraphStyle('BlackBoldCellRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black, alignment=2)
 
-    # Cabeçalho do Orçamento
+    # Cabeçalho do Orçamento (Utilizando os valores digitados nos inputs)
     story.append(Paragraph("MADS CONSTRUÇÕES", header_style))
     story.append(Paragraph(f"OBRA: {obra_nome.upper()}", sub_style))
     story.append(Paragraph(f"SOLICITANTE: {solicitante.upper()}", sub_style))
@@ -393,7 +390,6 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     total_mo_geral = 0.0
     total_custo_geral = 0.0
     
-    # Listas de controle de estilos de linha para aplicar no TableStyle depois
     table_styles = [
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#D1D5DB')),
@@ -402,7 +398,7 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
     ]
     
-    # 1. Linha 1: TOTAL CUSTO (Fundo Branco, Valores em negrito preto)
+    # 1. Linha 1: TOTAL CUSTO
     tabela_dados.append([
         Paragraph("", cell_style),
         Paragraph("TOTAL CUSTO", cell_bold),
@@ -410,12 +406,12 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         Paragraph("", cell_style),
         Paragraph("", cell_style),
         Paragraph("", cell_style),
-        Paragraph("", cell_style), # Preenchido depois com o valor total
-        Paragraph("", cell_style)  # Preenchido depois com o valor total
+        Paragraph("", cell_style),
+        Paragraph("", cell_style)
     ])
     table_styles.append(('SPAN', (1, 1), (5, 1)))
     
-    # 2. Linha 2: TOTAL DE CUSTO + IMPOSTOS E LUCRO (Fundo Roxo/Lilás Exato da sua imagem)
+    # 2. Linha 2: TOTAL DE CUSTO + IMPOSTOS E LUCRO (Fundo Roxo/Lilás)
     tabela_dados.append([
         Paragraph("", cell_style),
         Paragraph(f"TOTAL DE CUSTO + IMPOSTOS E LUCRO", white_bold_cell),
@@ -427,9 +423,9 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         Paragraph("", white_bold_cell_right)
     ])
     table_styles.append(('SPAN', (1, 2), (6, 2)))
-    table_styles.append(('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#8B5CF6'))) # Roxo/Lilás exato
+    table_styles.append(('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#8B5CF6')))
     
-    # 3. Linha 3: SERVIÇOS GERAIS (Cinza claro de cabeçalho de grupo)
+    # 3. Linha 3: SERVIÇOS GERAIS
     tabela_dados.append([
         Paragraph("1", cell_bold),
         Paragraph("SERVIÇOS GERAIS", cell_bold),
@@ -443,7 +439,7 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     table_styles.append(('SPAN', (1, 3), (5, 3)))
     table_styles.append(('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#E5E7EB')))
     
-    # 4. Linha 4: SERRALHERIA (Barra Azul Forte Exata da sua imagem)
+    # 4. Linha 4: SERRALHERIA (Barra Azul Forte)
     tabela_dados.append([
         Paragraph("1.1", white_bold_cell),
         Paragraph("SERRALHERIA", white_bold_cell),
@@ -455,16 +451,16 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         Paragraph("", cell_style)
     ])
     table_styles.append(('SPAN', (1, 4), (7, 4)))
-    table_styles.append(('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#0000FF'))) # Azul Forte Exato
+    table_styles.append(('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#0000FF')))
     
-    linha_atual_idx = 5
-    
-    # Adicionar os itens dos serviços/materiais
+    # Adicionar dinamicamente os itens cadastrados pelo usuário
     for idx, row in enumerate(itens_df.iterrows(), start=1):
         _, r = row
         mat = float(r['material']) if 'material' in r else 0.0
         mo = float(r['mao_obra']) if 'mao_obra' in r else 0.0
         quant = float(r['quant']) if 'quant' in r else 1.0
+        unidade_item = str(r['unid']).upper() if 'unid' in r and str(r['unid']).strip() != "" else "UN"
+        
         tot_parcial = (mat + mo) * quant
         
         total_material_geral += (mat * quant)
@@ -474,29 +470,27 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         tabela_dados.append([
             Paragraph(f"1.1.{idx:04d}" if idx <= 6 else f"1.1.{idx}", cell_style),
             Paragraph(str(r['descricao']).upper(), cell_style),
-            Paragraph(str(r['unid']).upper(), cell_style),
+            Paragraph(unidade_item, cell_style),
             Paragraph(f"{quant:,.1f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
             Paragraph(f"R$ {mat * quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
             Paragraph(f"R$ {mo * quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
             Paragraph(f"R$ {tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
             Paragraph(f"R$ {tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style)
         ])
-        linha_atual_idx += 1
 
-    # Inserir os valores calculados nas linhas de Total Custo da SERRALHERIA
+    # Inserir os valores calculados nas linhas de Total Custo
     tabela_dados[1][6] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
     tabela_dados[1][7] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
     
     tabela_dados[3][6] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
     tabela_dados[3][7] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
 
-    # Cálculo dos Impostos e Lucro finais
     valor_impostos_lucro = total_custo_geral * (percentual_imposto / 100.0)
     valor_total_geral_com_impostos = total_custo_geral + valor_impostos_lucro
 
     tabela_dados[2][7] = Paragraph(f"R$ {valor_total_geral_com_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), white_bold_cell_right)
 
-    # 5. Seção de IMPOSTOS / DESCONTOS (Barra Azul Forte Exata)
+    # Seção de IMPOSTOS / DESCONTOS
     idx_impostos_titulo = len(tabela_dados)
     tabela_dados.append([
         Paragraph("2", white_bold_cell),
@@ -511,8 +505,7 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     table_styles.append(('SPAN', (1, idx_impostos_titulo), (6, idx_impostos_titulo)))
     table_styles.append(('BACKGROUND', (0, idx_impostos_titulo), (-1, idx_impostos_titulo), colors.HexColor('#0000FF')))
 
-    # 6. Linha do Percentual de Impostos + Lucro
-    idx_impostos_sub = len(tabela_dados)
+    # Linha do Percentual de Impostos + Lucro
     tabela_dados.append([
         Paragraph("2.1", cell_style),
         Paragraph("PERCENTUAL DE IMPOSTOS + LUCRO", cell_style),
@@ -524,7 +517,6 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         Paragraph(f"R$ {valor_impostos_lucro:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style)
     ])
 
-    # Construção final da Tabela com larguras de colunas proporcionais ao modelo
     t_orc = Table(tabela_dados, colWidths=[45, 290, 45, 55, 90, 90, 90, 100])
     t_orc.setStyle(TableStyle(table_styles))
     
@@ -853,6 +845,7 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
         if 'df_orcamento_itens' not in st.session_state:
             st.session_state.df_orcamento_itens = pd.DataFrame(columns=["descricao", "unid", "quant", "material", "mao_obra"])
 
+        # Formulário para alterar Obra, Solicitante e Objeto livremente
         with st.form("form_dados_orcamento"):
             c1, c2 = st.columns(2)
             with c1:
@@ -865,7 +858,7 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
             st.markdown("---")
             st.markdown("### Adicionar Etapa / Item ao Orçamento")
             d_item = st.text_input("Descrição do Serviço / Material:", value="TELHA TERMOACÚSTICA (FORRO PIR 30MM)")
-            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="m²")
+            d_unid = st.text_input("Unidade (ex: m2, m, un, vb):", value="m²")
             d_quant = st.number_input("Quantidade:", value=163.0)
             d_mat = st.number_input("Custo Unitário de Material (R$):", value=18104.68 / 163.0)
             d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=0.0)
@@ -882,6 +875,15 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
         st.markdown("### Itens Atuais do Orçamento")
         st.session_state.df_orcamento_itens = st.data_editor(st.session_state.df_orcamento_itens, num_rows="dynamic", use_container_width=True, key="editor_orc")
 
+        # Botão de Reset / Limpar Tela de Orçamento
+        col_res1, col_res2 = st.columns([1, 3])
+        with col_res1:
+            if st.button("🔄 Resetar / Limpar Orçamento"):
+                st.session_state.df_orcamento_itens = pd.DataFrame(columns=["descricao", "unid", "quant", "material", "mao_obra"])
+                st.success("Orçamento limpo com sucesso!")
+                st.rerun()
+
+        st.markdown("---")
         if st.button("📥 Gerar PDF do Orçamento Oficial"):
             if not st.session_state.df_orcamento_itens.empty:
                 pdf_orc_path = gerar_pdf_orcamento(obra_nome_input, solicitante_input, objeto_input, st.session_state.df_orcamento_itens, percentual_imposto_input)
