@@ -355,6 +355,7 @@ def gerar_pdf_reembolso(emitente_nome, emitente_cnpj, emitente_end, destinatario
 
 def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imposto):
     pdf_path = "orcamento_oficial.pdf"
+    # Margens e tamanho paisagem para caber perfeitamente como na sua imagem
     doc = SimpleDocTemplate(pdf_path, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     story = []
     styles = getSampleStyleSheet()
@@ -363,14 +364,20 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
     sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=12, textColor=colors.black)
     cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.black)
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black)
-    red_bold = ParagraphStyle('RedBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.red)
     
+    # Estilos específicos para os textos dentro das barras coloridas do layout exato
+    white_bold_cell = ParagraphStyle('WhiteBoldCell', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.white)
+    white_bold_cell_right = ParagraphStyle('WhiteBoldCellRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.white, alignment=2)
+    black_bold_cell_right = ParagraphStyle('BlackBoldCellRight', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black, alignment=2)
+
+    # Cabeçalho do Orçamento
     story.append(Paragraph("MADS CONSTRUÇÕES", header_style))
     story.append(Paragraph(f"OBRA: {obra_nome.upper()}", sub_style))
     story.append(Paragraph(f"SOLICITANTE: {solicitante.upper()}", sub_style))
     story.append(Paragraph(f"OBJETO: {objeto.upper()}", sub_style))
     story.append(Spacer(1, 8))
     
+    # Cabeçalho da Tabela
     tabela_dados = [[
         Paragraph("ITEM", cell_bold), 
         Paragraph("DESCRIÇÃO", cell_bold), 
@@ -378,56 +385,148 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         Paragraph("QUANT.", cell_bold), 
         Paragraph("MATERIAL", cell_bold), 
         Paragraph("MÃO DE OBRA", cell_bold), 
-        Paragraph("MAT/MO", cell_bold), 
-        Paragraph("PREÇO TOTAL (R$)", cell_bold)
+        Paragraph("MAT+M.O.", cell_bold), 
+        Paragraph("PREÇO TOTAL", cell_bold)
     ]]
     
+    total_material_geral = 0.0
+    total_mo_geral = 0.0
     total_custo_geral = 0.0
     
+    # Listas de controle de estilos de linha para aplicar no TableStyle depois
+    table_styles = [
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#D1D5DB')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#D1D5DB')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]
+    
+    # 1. Linha 1: TOTAL CUSTO (Fundo Branco, Valores em negrito preto)
+    tabela_dados.append([
+        Paragraph("", cell_style),
+        Paragraph("TOTAL CUSTO", cell_bold),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style), # Preenchido depois com o valor total
+        Paragraph("", cell_style)  # Preenchido depois com o valor total
+    ])
+    table_styles.append(('SPAN', (1, 1), (5, 1)))
+    
+    # 2. Linha 2: TOTAL DE CUSTO + IMPOSTOS E LUCRO (Fundo Roxo/Lilás Exato da sua imagem)
+    tabela_dados.append([
+        Paragraph("", cell_style),
+        Paragraph(f"TOTAL DE CUSTO + IMPOSTOS E LUCRO", white_bold_cell),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", white_bold_cell_right)
+    ])
+    table_styles.append(('SPAN', (1, 2), (6, 2)))
+    table_styles.append(('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#8B5CF6'))) # Roxo/Lilás exato
+    
+    # 3. Linha 3: SERVIÇOS GERAIS (Cinza claro de cabeçalho de grupo)
+    tabela_dados.append([
+        Paragraph("1", cell_bold),
+        Paragraph("SERVIÇOS GERAIS", cell_bold),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style)
+    ])
+    table_styles.append(('SPAN', (1, 3), (5, 3)))
+    table_styles.append(('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#E5E7EB')))
+    
+    # 4. Linha 4: SERRALHERIA (Barra Azul Forte Exata da sua imagem)
+    tabela_dados.append([
+        Paragraph("1.1", white_bold_cell),
+        Paragraph("SERRALHERIA", white_bold_cell),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style)
+    ])
+    table_styles.append(('SPAN', (1, 4), (7, 4)))
+    table_styles.append(('BACKGROUND', (0, 4), (-1, 4), colors.HexColor('#0000FF'))) # Azul Forte Exato
+    
+    linha_atual_idx = 5
+    
+    # Adicionar os itens dos serviços/materiais
     for idx, row in enumerate(itens_df.iterrows(), start=1):
         _, r = row
         mat = float(r['material']) if 'material' in r else 0.0
         mo = float(r['mao_obra']) if 'mao_obra' in r else 0.0
         quant = float(r['quant']) if 'quant' in r else 1.0
         tot_parcial = (mat + mo) * quant
+        
+        total_material_geral += (mat * quant)
+        total_mo_geral += (mo * quant)
         total_custo_geral += tot_parcial
         
         tabela_dados.append([
-            Paragraph(str(idx), cell_style),
+            Paragraph(f"1.1.{idx:04d}" if idx <= 6 else f"1.1.{idx}", cell_style),
             Paragraph(str(r['descricao']).upper(), cell_style),
             Paragraph(str(r['unid']).upper(), cell_style),
-            Paragraph(f"{quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
-            Paragraph(f"R$ {mat:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
-            Paragraph(f"R$ {mo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
-            Paragraph("", cell_style),
+            Paragraph(f"{quant:,.1f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph(f"R$ {mat * quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph(f"R$ {mo * quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph(f"R$ {tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
             Paragraph(f"R$ {tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style)
         ])
+        linha_atual_idx += 1
+
+    # Inserir os valores calculados nas linhas de Total Custo da SERRALHERIA
+    tabela_dados[1][6] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
+    tabela_dados[1][7] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
     
-    valor_impostos = total_custo_geral * (percentual_imposto / 100.0)
-    valor_total_final = total_custo_geral + valor_impostos
-    
+    tabela_dados[3][6] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
+    tabela_dados[3][7] = Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_bold)
+
+    # Cálculo dos Impostos e Lucro finais
+    valor_impostos_lucro = total_custo_geral * (percentual_imposto / 100.0)
+    valor_total_geral_com_impostos = total_custo_geral + valor_impostos_lucro
+
+    tabela_dados[2][7] = Paragraph(f"R$ {valor_total_geral_com_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), white_bold_cell_right)
+
+    # 5. Seção de IMPOSTOS / DESCONTOS (Barra Azul Forte Exata)
+    idx_impostos_titulo = len(tabela_dados)
     tabela_dados.append([
-        Paragraph("", cell_style), Paragraph("TOTAL CUSTO", red_bold), Paragraph("", cell_style), Paragraph("", cell_style),
-        Paragraph("", cell_style), Paragraph("", cell_style), Paragraph("", cell_style),
-        Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), red_bold)
+        Paragraph("2", white_bold_cell),
+        Paragraph("IMPOSTOS / DESCONTOS", white_bold_cell),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph(f"R$ {valor_impostos_lucro:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), white_bold_cell_right)
     ])
-    
+    table_styles.append(('SPAN', (1, idx_impostos_titulo), (6, idx_impostos_titulo)))
+    table_styles.append(('BACKGROUND', (0, idx_impostos_titulo), (-1, idx_impostos_titulo), colors.HexColor('#0000FF')))
+
+    # 6. Linha do Percentual de Impostos + Lucro
+    idx_impostos_sub = len(tabela_dados)
     tabela_dados.append([
-        Paragraph("", cell_style), Paragraph(f"TOTAL DE CUSTO + IMPOSTOS E LUCRO ({percentual_imposto:.1f}%)", red_bold), Paragraph("", cell_style), Paragraph("", cell_style),
-        Paragraph("", cell_style), Paragraph("", cell_style), Paragraph("", cell_style),
-        Paragraph(f"R$ {valor_total_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), red_bold)
+        Paragraph("2.1", cell_style),
+        Paragraph("PERCENTUAL DE IMPOSTOS + LUCRO", cell_style),
+        Paragraph("%", cell_style),
+        Paragraph(f"{percentual_imposto:.1f}".replace(".", ","), cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph("", cell_style),
+        Paragraph(f"R$ {valor_impostos_lucro:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style)
     ])
-    
-    t_orc = Table(tabela_dados, colWidths=[35, 290, 45, 55, 80, 80, 65, 95])
-    t_orc.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-3), 0.5, colors.HexColor('#CCCCCC')),
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E5E7EB')),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('BACKGROUND', (0,-2), (-1,-1), colors.HexColor('#F9FAFB')),
-        ('SPAN', (1,-2), (6,-2)),
-        ('SPAN', (1,-1), (6,-1)),
-    ]))
+
+    # Construção final da Tabela com larguras de colunas proporcionais ao modelo
+    t_orc = Table(tabela_dados, colWidths=[45, 290, 45, 55, 90, 90, 90, 100])
+    t_orc.setStyle(TableStyle(table_styles))
     
     story.append(t_orc)
     doc.build(story)
@@ -757,18 +856,18 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
         with st.form("form_dados_orcamento"):
             c1, c2 = st.columns(2)
             with c1:
-                obra_nome_input = st.text_input("Nome da Obra / Projeto:", value="OBRA BK BRAGANÇA PAULISTA")
-                solicitante_input = st.text_input("Cliente / Solicitante:", value="EVERSON")
+                obra_nome_input = st.text_input("Nome da Obra / Projeto:", value="UNIDADE SÃO CARLOS")
+                solicitante_input = st.text_input("Cliente / Solicitante:", value="BURGER KING")
             with c2:
-                objeto_input = st.text_input("Objeto do Orçamento:", value="SERVICOS GERAIS")
-                percentual_imposto_input = st.number_input("Percentual BDI / Impostos (%)", value=30.0)
+                objeto_input = st.text_input("Objeto do Orçamento:", value="SERVIÇOS GERAIS (TROCA DE TELHAMENTO)")
+                percentual_imposto_input = st.number_input("Percentual BDI / Impostos (%)", value=35.0)
 
             st.markdown("---")
             st.markdown("### Adicionar Etapa / Item ao Orçamento")
-            d_item = st.text_input("Descrição do Serviço / Material:", value="ACM VERMELHO")
-            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="M2")
-            d_quant = st.number_input("Quantidade:", value=51.0)
-            d_mat = st.number_input("Custo Unitário de Material (R$):", value=510.01)
+            d_item = st.text_input("Descrição do Serviço / Material:", value="TELHA TERMOACÚSTICA (FORRO PIR 30MM)")
+            d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="m²")
+            d_quant = st.number_input("Quantidade:", value=163.0)
+            d_mat = st.number_input("Custo Unitário de Material (R$):", value=18104.68 / 163.0)
             d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=0.0)
             
             botao_add_orc = st.form_submit_button("➕ Adicionar Item ao Orçamento")
