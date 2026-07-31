@@ -355,28 +355,34 @@ def gerar_pdf_reembolso(emitente_nome, emitente_cnpj, emitente_end, destinatario
 
 def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imposto):
     pdf_path = "orcamento_oficial.pdf"
-    doc = SimpleDocTemplate(pdf_path, pagesize=landscape(letter), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(pdf_path, pagesize=landscape(letter), rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
     story = []
     styles = getSampleStyleSheet()
     
-    titulo_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=16, leading=20, textColor=colors.HexColor('#1E3A8A'))
-    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=10, leading=14, textColor=colors.black)
+    header_style = ParagraphStyle('HeaderStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=12, leading=15, textColor=colors.black)
+    sub_style = ParagraphStyle('SubStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=12, textColor=colors.black)
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=8, leading=10, textColor=colors.black)
+    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.black)
+    red_bold = ParagraphStyle('RedBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9, leading=11, textColor=colors.red)
     
-    story.append(Paragraph("<b>CONSTRUTORA MADS — ORÇAMENTO OFICIAL</b>", titulo_style))
-    story.append(Spacer(1, 10))
+    story.append(Paragraph("MADS CONSTRUÇÕES", header_style))
+    story.append(Paragraph(f"OBRA: {obra_nome.upper()}", sub_style))
+    story.append(Paragraph(f"SOLICITANTE: {solicitante.upper()}", sub_style))
+    story.append(Paragraph(f"OBJETO: {objeto.upper()}", sub_style))
+    story.append(Spacer(1, 8))
     
-    data_emissao = datetime.now().strftime('%d/%m/%Y')
-    info_texto = f"""
-    • <b>Obra:</b> {obra_nome}<br/>
-    • <b>Solicitante / Cliente:</b> {solicitante}<br/>
-    • <b>Objeto:</b> {objeto}<br/>
-    • <b>Data de Emissão:</b> {data_emissao}
-    """
-    story.append(Paragraph(info_texto, sub_style))
-    story.append(Spacer(1, 15))
+    tabela_dados = [[
+        Paragraph("ITEM", cell_bold), 
+        Paragraph("DESCRIÇÃO", cell_bold), 
+        Paragraph("UNID.", cell_bold), 
+        Paragraph("QUANT.", cell_bold), 
+        Paragraph("MATERIAL", cell_bold), 
+        Paragraph("MÃO DE OBRA", cell_bold), 
+        Paragraph("MAT/MO", cell_bold), 
+        Paragraph("PREÇO TOTAL (R$)", cell_bold)
+    ]]
     
-    tabela_dados = [["Item", "Descrição", "Unid.", "Quant.", "Material (R$)", "Mão de Obra (R$)", "Total Parcial (R$)"]]
-    subtotal_geral = 0.0
+    total_custo_geral = 0.0
     
     for idx, row in enumerate(itens_df.iterrows(), start=1):
         _, r = row
@@ -384,39 +390,43 @@ def gerar_pdf_orcamento(obra_nome, solicitante, objeto, itens_df, percentual_imp
         mo = float(r['mao_obra']) if 'mao_obra' in r else 0.0
         quant = float(r['quant']) if 'quant' in r else 1.0
         tot_parcial = (mat + mo) * quant
-        subtotal_geral += tot_parcial
+        total_custo_geral += tot_parcial
         
         tabela_dados.append([
-            str(idx),
-            str(r['descricao']).upper(),
-            str(r['unid']).upper(),
-            f"{quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            f"{mat:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            f"{mo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-            f"{tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            Paragraph(str(idx), cell_style),
+            Paragraph(str(r['descricao']).upper(), cell_style),
+            Paragraph(str(r['unid']).upper(), cell_style),
+            Paragraph(f"{quant:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph(f"R$ {mat:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph(f"R$ {mo:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style),
+            Paragraph("", cell_style),
+            Paragraph(f"R$ {tot_parcial:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), cell_style)
         ])
     
-    valor_impostos = subtotal_geral * (percentual_imposto / 100.0)
-    valor_total_final = subtotal_geral + valor_impostos
+    valor_impostos = total_custo_geral * (percentual_imposto / 100.0)
+    valor_total_final = total_custo_geral + valor_impostos
     
-    tabela_dados.append(["", "SUBTOTAL DOS SERVIÇOS/MATERIAIS:", "", "", "", "", f"R$ {subtotal_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
-    tabela_dados.append(["", f"BDI / IMPOSTOS E LUCRO ({percentual_imposto:.1f}%):", "", "", "", "", f"R$ {valor_impostos:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
-    tabela_dados.append(["", "VALOR TOTAL GERAL DO ORÇAMENTO:", "", "", "", "", f"R$ {valor_total_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")])
+    tabela_dados.append([
+        Paragraph("", cell_style), Paragraph("TOTAL CUSTO", red_bold), Paragraph("", cell_style), Paragraph("", cell_style),
+        Paragraph("", cell_style), Paragraph("", cell_style), Paragraph("", cell_style),
+        Paragraph(f"R$ {total_custo_geral:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), red_bold)
+    ])
     
-    t_orc = Table(tabela_dados, colWidths=[40, 270, 50, 60, 100, 100, 110])
+    tabela_dados.append([
+        Paragraph("", cell_style), Paragraph(f"TOTAL DE CUSTO + IMPOSTOS E LUCRO ({percentual_imposto:.1f}%)", red_bold), Paragraph("", cell_style), Paragraph("", cell_style),
+        Paragraph("", cell_style), Paragraph("", cell_style), Paragraph("", cell_style),
+        Paragraph(f"R$ {valor_total_final:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."), red_bold)
+    ])
+    
+    t_orc = Table(tabela_dados, colWidths=[35, 290, 45, 55, 80, 80, 65, 95])
     t_orc.setStyle(TableStyle([
-        ('GRID', (0,0), (-1,-4), 0.5, colors.HexColor('#CCCCCC')),
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1E3A8A')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-        ('BACKGROUND', (0,-3), (-1,-1), colors.HexColor('#F3F4F6')),
-        ('FONTNAME', (0,-3), (-1,-1), 'Helvetica-Bold'),
-        ('SPAN', (0,-3), (4,-3)),
-        ('SPAN', (0,-2), (4,-2)),
-        ('SPAN', (0,-1), (4,-1)),
+        ('GRID', (0,0), (-1,-3), 0.5, colors.HexColor('#CCCCCC')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#E5E7EB')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('BACKGROUND', (0,-2), (-1,-1), colors.HexColor('#F9FAFB')),
+        ('SPAN', (1,-2), (6,-2)),
+        ('SPAN', (1,-1), (6,-1)),
     ]))
     
     story.append(t_orc)
@@ -748,17 +758,17 @@ elif opcao_menu == "📄 Gerador de Orçamento PDF":
             c1, c2 = st.columns(2)
             with c1:
                 obra_nome_input = st.text_input("Nome da Obra / Projeto:", value="OBRA BK BRAGANÇA PAULISTA")
-                solicitante_input = st.text_input("Cliente / Solicitante:", value="Joel Japin")
+                solicitante_input = st.text_input("Cliente / Solicitante:", value="EVERSON")
             with c2:
                 objeto_input = st.text_input("Objeto do Orçamento:", value="SERVICOS GERAIS")
                 percentual_imposto_input = st.number_input("Percentual BDI / Impostos (%)", value=30.0)
 
             st.markdown("---")
             st.markdown("### Adicionar Etapa / Item ao Orçamento")
-            d_item = st.text_input("Descrição do Serviço / Material:", value="ACM PRETO")
+            d_item = st.text_input("Descrição do Serviço / Material:", value="ACM VERMELHO")
             d_unid = st.text_input("Unidade (ex: m2, und, vb):", value="M2")
-            d_quant = st.number_input("Quantidade:", value=6.52)
-            d_mat = st.number_input("Custo Unitário de Material (R$):", value=31.05)
+            d_quant = st.number_input("Quantidade:", value=51.0)
+            d_mat = st.number_input("Custo Unitário de Material (R$):", value=510.01)
             d_mo = st.number_input("Custo Unitário de Mão de Obra (R$):", value=0.0)
             
             botao_add_orc = st.form_submit_button("➕ Adicionar Item ao Orçamento")
